@@ -12,9 +12,11 @@ import org.vertx.java.core.json.JsonObject;
 import org.vertx.java.core.logging.Logger;
 import org.vertx.java.platform.Verticle;
 
-import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Date;
 
 /**
  * An EventBus module providing MongoDB GridFS functionality
@@ -71,10 +73,24 @@ public class GridFSModule extends Verticle {
             }
         });
 
-        eb.registerHandler(address + "/getByteRange", new Handler<Message<JsonObject>>() {
+        eb.registerHandler(address + "/getChunk", new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> message) {
-                getByteRange(message);
+                getChunk(message);
+            }
+        });
+
+        eb.registerHandler(address + "/saveChunk", new Handler<Message<byte[]>>() {
+            @Override
+            public void handle(Message<byte[]> message) {
+                saveChunk(message);
+            }
+        });
+
+        eb.registerHandler(address + "/saveFile", new Handler<Message<JsonObject>>() {
+            @Override
+            public void handle(Message<JsonObject> message) {
+                saveFile(message);
             }
         });
 
@@ -85,14 +101,151 @@ public class GridFSModule extends Verticle {
         mongo.close();
     }
 
+    public void saveFile(Message<JsonObject> message) {
+
+        JsonObject jsonObject = message.body();
+
+        String idString = jsonObject.getString("id");
+        if (idString == null) {
+            sendError(message, "id is missing");
+            return;
+        }
+        ObjectId id = getObjectId(message, idString);
+        if (id == null) {
+            return;
+        }
+
+        int length = jsonObject.getInteger("length", 0);
+        if (length <= 0) {
+            sendError(message, "length must be greater than zero");
+            return;
+        }
+
+        int chunkSize = jsonObject.getInteger("chunkSize", 0);
+        if (chunkSize <= 0) {
+            sendError(message, "chunkSize must be greater than zero");
+            return;
+        }
+
+        long uploadDate = jsonObject.getLong("uploadDate", 0);
+        if (uploadDate <= 0) {
+            uploadDate = System.currentTimeMillis();
+        }
+
+        String filename = jsonObject.getString("filename");
+        String contentType = jsonObject.getString("contentType");
+
+        try {
+            BasicDBObjectBuilder builder = BasicDBObjectBuilder.start()
+                    .add("_id", id)
+                    .add("length", length)
+                    .add("chunkSize", chunkSize)
+                    .add("uploadDate", new Date(uploadDate));
+
+            if (filename != null) builder.add("filename", filename);
+            if (contentType != null) builder.add("contentType", contentType);
+
+            DBObject dbObject = builder.get();
+
+            String bucket = jsonObject.getString("bucket", GridFS.DEFAULT_BUCKET);
+            DBCollection collection = db.getCollection(bucket + ".files");
+
+            // Ensure standard indexes as long as collection is small
+            if (collection.count() < 1000) {
+                collection.ensureIndex(BasicDBObjectBuilder.start().add("filename", 1).add("uploadDate", 1).get());
+            }
+
+            collection.save(dbObject);
+            sendOK(message);
+
+        } catch (Exception e) {
+            sendError(message, "Error saving file", e);
+        }
+    }
+
+    public void saveChunk(Message<byte[]> message) {
+
+        try {
+
+            byte[] body = message.body();
+
+            // First four bytes indicate the json string length
+            ByteBuffer byteBuffer = ByteBuffer.wrap(body, 0, 4);
+            int len = byteBuffer.getInt();
+
+            // Decode json
+            int from = 4;
+            byte[] jsonBytes = Arrays.copyOfRange(body, from, from + len);
+            String jsonString = decode(jsonBytes);
+            JsonObject jsonObject = new JsonObject(jsonString);
+
+            // Remaining bytes are the chunk to be written
+            from += len;
+            byte[] data = Arrays.copyOfRange(body, from, body.length);
+
+            saveChunk(message, jsonObject, data);
+
+        } catch (RuntimeException e) {
+            sendError(message, "error parsing byte[] message", e);
+        }
+
+    }
+
+    public void saveChunk(Message<byte[]> message, JsonObject jsonObject, byte[] data) {
+
+        if (data == null || data.length == 0) {
+            sendError(message, "chunk data is null or empty");
+            return;
+        }
+
+        String files_id = jsonObject.getString("files_id");
+        if (files_id == null) {
+            sendError(message, "files_id is missing");
+            return;
+        }
+        ObjectId id = getObjectId(message, files_id);
+        if (id == null) {
+            return;
+        }
+
+        Integer n = jsonObject.getInteger("n");
+        if (n == null) {
+            sendError(message, "n (chunk number) is missing");
+            return;
+        }
+
+        try {
+            DBObject dbObject = BasicDBObjectBuilder.start()
+                    .add("files_id", id)
+                    .add("n", n)
+                    .add("data", data).get();
+
+            String bucket = jsonObject.getString("bucket", GridFS.DEFAULT_BUCKET);
+            DBCollection collection = db.getCollection(bucket + ".chunks");
+
+            // Ensure standard indexes as long as collection is small
+            if (collection.count() < 1000) {
+                collection.ensureIndex(
+                        BasicDBObjectBuilder.start().add("files_id", 1).add("n", 1).get(),
+                        BasicDBObjectBuilder.start().add("unique", 1).get());
+            }
+
+            collection.save(dbObject);
+            sendOK(message);
+
+        } catch (RuntimeException e) {
+            sendError(message, "Error saving chunk", e);
+        }
+
+    }
+
     public void getMetaData(Message<JsonObject> message) {
 
         try {
             GridFSDBFile file = getFile(message);
             JsonObject fileInfo = new JsonObject();
 
-            fileInfo.putString("status", "ok")
-                    .putString("filename", file.getFilename())
+            fileInfo.putString("filename", file.getFilename())
                     .putString("contentType", file.getContentType())
                     .putNumber("length", file.getLength())
                     .putNumber("chunkSize", file.getChunkSize())
@@ -104,7 +257,7 @@ public class GridFSModule extends Verticle {
             }
 
             // Send file info
-            message.reply(fileInfo);
+            sendOK(message, fileInfo);
 
         } catch (RuntimeException e) {
             sendError(message, "Runtime error", e);
@@ -112,47 +265,44 @@ public class GridFSModule extends Verticle {
 
     }
 
-    public void getByteRange(Message<JsonObject> message) {
+    public void getChunk(Message<JsonObject> message) {
 
-        Integer from = message.body().getInteger("from");
-        Integer to = message.body().getInteger("to");
+        try {
+            GridFSDBFile file = getFile(message);
 
-        if (from == null || to == null) {
-            sendError(message, "from and to fields are required");
-            return;
-        }
-        if (from < 0 || from >= to) {
-            sendError(message, "from must be greater than zero and less than to");
-            return;
-        }
-
-        GridFSDBFile file = getFile(message);
-
-        if (file == null) {
-            return;
-        }
-
-        int length = to - from + 1;
-        byte[] bytes = new byte[length];
-
-        try (InputStream stream = file.getInputStream()) {
-
-            if (from > 0) {
-                stream.skip(from);
+            if (file == null) {
+                return;
             }
 
-            int l = stream.read(bytes, 0, length);
+            Integer n = message.body().getInteger("n");
+            if (n == null) {
+                sendError(message, "n (chunk number) is required");
+                return;
+            }
+            if (n < 0) {
+                sendError(message, "n must be greater than or equal to zero");
+                return;
+            }
 
-            if (l == length) {
-                message.reply(bytes);
-            } else if (l > 0) {
-                message.reply(Arrays.copyOfRange(bytes, 0, l));
-            } else {
+            int len = (int) file.getChunkSize();
+            String bucket = message.body().getString("bucket", GridFS.DEFAULT_BUCKET);
+
+            DBCollection collection = db.getCollection(bucket + ".chunks");
+            DBObject dbObject = BasicDBObjectBuilder.start("files_id", file.getId())
+                    .add("n", n).get();
+
+            DBObject result = collection.findOne(dbObject);
+
+            if (result == null) {
                 message.reply(new byte[0]);
+                return;
             }
+
+            byte[] data = (byte[]) result.get("data");
+            message.reply(data);
 
         } catch (Throwable e) {
-            sendError(message, "Error reading input stream", e);
+            sendError(message, "Error getting byte range", e);
         }
 
     }
@@ -161,7 +311,7 @@ public class GridFSModule extends Verticle {
 
         String id = message.body().getString("id", null);
         if (id == null) {
-            sendError(message, "id must be specified for getMetaData");
+            sendError(message, "id is required");
             return null;
         }
 
@@ -169,8 +319,13 @@ public class GridFSModule extends Verticle {
         String bucket = message.body().getString("bucket", GridFS.DEFAULT_BUCKET);
 
         GridFS files = new GridFS(db, bucket);
-//        GridFSDBFile file = files.getMetaData(new BasicDBObject("_id", id));
-        GridFSDBFile file = files.findOne(new ObjectId(id));
+
+        ObjectId objectId = getObjectId(message, id);
+        if (objectId == null) {
+            return null;
+        }
+
+        GridFSDBFile file = files.findOne(objectId);
 
         if (file == null) {
             sendError(message, "File does not exist: " + id);
@@ -179,14 +334,41 @@ public class GridFSModule extends Verticle {
         return file;
     }
 
-    public void sendError(Message<JsonObject> message, String error) {
+    public void sendError(Message message, String error) {
         sendError(message, error, null);
     }
 
-    public void sendError(Message<JsonObject> message, String error, Throwable e) {
+    public void sendError(Message message, String error, Throwable e) {
         logger.error(error, e);
         JsonObject result = new JsonObject().putString("status", "error").putString("message", error);
         message.reply(result);
+    }
+
+    public void sendOK(Message message) {
+        sendOK(message, new JsonObject());
+    }
+
+    public void sendOK(Message message, JsonObject response) {
+        response.putString("status", "ok");
+        message.reply(response);
+    }
+
+    private String decode(byte[] bytes) {
+        try {
+            return new String(bytes, "UTF-8");
+        } catch (UnsupportedEncodingException e) {
+            // Should never happen
+            throw new RuntimeException(e);
+        }
+    }
+
+    private ObjectId getObjectId(Message message, String id) {
+        try {
+            return new ObjectId(id);
+        } catch (Exception e) {
+            sendError(message, "id " + id + " is not a valid ObjectId", e);
+            return null;
+        }
     }
 
 }
