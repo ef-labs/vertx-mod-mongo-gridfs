@@ -132,7 +132,7 @@ public class BasicIntegrationTest extends TestVerticle {
                 .putString("filename", "image.jpg")
                 .putString("contentType", "image/jpeg");
 
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/saveFile", fileInfo, replyHandler);
+        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/saveFileInfo", fileInfo, replyHandler);
 
     }
 
@@ -140,7 +140,7 @@ public class BasicIntegrationTest extends TestVerticle {
 
         JsonObject message = new JsonObject().putString("id", id.toString());
 
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getMetaData", message, new Handler<Message<JsonObject>>() {
+        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getFileInfo", message, new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> reply) {
                 String status = reply.body().getString("status");

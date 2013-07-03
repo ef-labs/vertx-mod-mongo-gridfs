@@ -66,10 +66,10 @@ public class GridFSModule extends Verticle {
             logger.error("Failed to connect to mongo server", e);
         }
 
-        eb.registerHandler(address + "/getMetaData", new Handler<Message<JsonObject>>() {
+        eb.registerHandler(address + "/getFileInfo", new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> message) {
-                getMetaData(message);
+                getFileInfo(message);
             }
         });
 
@@ -87,10 +87,10 @@ public class GridFSModule extends Verticle {
             }
         });
 
-        eb.registerHandler(address + "/saveFile", new Handler<Message<JsonObject>>() {
+        eb.registerHandler(address + "/saveFileInfo", new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> message) {
-                saveFile(message);
+                saveFileInfo(message);
             }
         });
 
@@ -101,16 +101,11 @@ public class GridFSModule extends Verticle {
         mongo.close();
     }
 
-    public void saveFile(Message<JsonObject> message) {
+    public void saveFileInfo(Message<JsonObject> message) {
 
         JsonObject jsonObject = message.body();
 
-        String idString = jsonObject.getString("id");
-        if (idString == null) {
-            sendError(message, "id is missing");
-            return;
-        }
-        ObjectId id = getObjectId(message, idString);
+        ObjectId id = getObjectId(message, jsonObject, "id");
         if (id == null) {
             return;
         }
@@ -198,12 +193,7 @@ public class GridFSModule extends Verticle {
             return;
         }
 
-        String files_id = jsonObject.getString("files_id");
-        if (files_id == null) {
-            sendError(message, "files_id is missing");
-            return;
-        }
-        ObjectId id = getObjectId(message, files_id);
+        ObjectId id = getObjectId(message, jsonObject, "files_id");
         if (id == null) {
             return;
         }
@@ -239,7 +229,7 @@ public class GridFSModule extends Verticle {
 
     }
 
-    public void getMetaData(Message<JsonObject> message) {
+    public void getFileInfo(Message<JsonObject> message) {
 
         try {
             GridFSDBFile file = getFile(message);
@@ -268,11 +258,7 @@ public class GridFSModule extends Verticle {
     public void getChunk(Message<JsonObject> message) {
 
         try {
-            GridFSDBFile file = getFile(message);
-
-            if (file == null) {
-                return;
-            }
+            ObjectId id = getObjectId(message, message.body(), "id");
 
             Integer n = message.body().getInteger("n");
             if (n == null) {
@@ -284,12 +270,10 @@ public class GridFSModule extends Verticle {
                 return;
             }
 
-            int len = (int) file.getChunkSize();
             String bucket = message.body().getString("bucket", GridFS.DEFAULT_BUCKET);
 
             DBCollection collection = db.getCollection(bucket + ".chunks");
-            DBObject dbObject = BasicDBObjectBuilder.start("files_id", file.getId())
-                    .add("n", n).get();
+            DBObject dbObject = BasicDBObjectBuilder.start("files_id", id).add("n", n).get();
 
             DBObject result = collection.findOne(dbObject);
 
@@ -309,9 +293,8 @@ public class GridFSModule extends Verticle {
 
     public GridFSDBFile getFile(Message<JsonObject> message) {
 
-        String id = message.body().getString("id", null);
-        if (id == null) {
-            sendError(message, "id is required");
+        ObjectId objectId = getObjectId(message, message.body(), "id");
+        if (objectId == null) {
             return null;
         }
 
@@ -320,15 +303,10 @@ public class GridFSModule extends Verticle {
 
         GridFS files = new GridFS(db, bucket);
 
-        ObjectId objectId = getObjectId(message, id);
-        if (objectId == null) {
-            return null;
-        }
-
         GridFSDBFile file = files.findOne(objectId);
 
         if (file == null) {
-            sendError(message, "File does not exist: " + id);
+            sendError(message, "File does not exist: " + objectId.toString());
         }
 
         return file;
@@ -362,13 +340,21 @@ public class GridFSModule extends Verticle {
         }
     }
 
-    private ObjectId getObjectId(Message message, String id) {
-        try {
-            return new ObjectId(id);
-        } catch (Exception e) {
-            sendError(message, "id " + id + " is not a valid ObjectId", e);
+    private ObjectId getObjectId(Message message, JsonObject jsonObject, String fieldName) {
+
+        String idString = jsonObject.getString(fieldName);
+        if (idString == null) {
+            sendError(message, fieldName + " is missing");
             return null;
         }
+
+        try {
+            return new ObjectId(idString);
+        } catch (Exception e) {
+            sendError(message, fieldName + " " + idString + " is not a valid ObjectId", e);
+            return null;
+        }
+
     }
 
 }
