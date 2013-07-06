@@ -15,6 +15,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.Arrays;
 
 import static org.vertx.testtools.VertxAssert.*;
 
@@ -29,24 +30,12 @@ public class BasicIntegrationTest extends TestVerticle {
         // Create a MongoDB ObjectId
         final ObjectId id = new ObjectId();
 
-        // Handler for when read is complete
-        final Handler<Boolean> readDoneHandler = new Handler<Boolean>() {
-            @Override
-            public void handle(Boolean result) {
-                if (result) {
-                    testComplete();
-                } else {
-                    fail();
-                }
-            }
-        };
-
         // Handler for when write is complete and then triggers the read to start
         Handler<Boolean> writeDoneHandler = new Handler<Boolean>() {
             @Override
             public void handle(Boolean result) {
                 if (result) {
-                    startReadFile(id, readDoneHandler);
+                    startReadFile(id);
                 } else {
                     fail();
                 }
@@ -103,7 +92,7 @@ public class BasicIntegrationTest extends TestVerticle {
 
             buffer.appendInt(jsonBytes.length);
             buffer.appendBytes(jsonBytes);
-            buffer.appendBytes(bytes);
+            buffer.appendBytes(Arrays.copyOfRange(bytes, 0, len));
 
             results.expectedReplies++;
 
@@ -129,7 +118,7 @@ public class BasicIntegrationTest extends TestVerticle {
 
     }
 
-    private void startReadFile(final ObjectId id, final Handler<Boolean> doneHandler) {
+    private void startReadFile(final ObjectId id) {
 
         JsonObject message = new JsonObject().putString("id", id.toString()).putString("action", "getFile");
 
@@ -146,19 +135,37 @@ public class BasicIntegrationTest extends TestVerticle {
                     JsonObject chunkMessage = new JsonObject()
                             .putString("action", "getChunk")
                             .putString("files_id", id.toString())
-                            .putNumber("n", 0);
+                            .putNumber("n", 0)
+                            .putBoolean("reply", true);
 
                     vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS, chunkMessage, new Handler<Message<byte[]>>() {
                         @Override
                         public void handle(Message<byte[]> reply) {
-                            byte[] chunk = reply.body();
-                            assertEquals(chunkSize, chunk.length);
-                            testComplete();
+                            handleChunkReply(reply, length, chunkSize, new Buffer());
                         }
                     });
                 }
             }
         });
+
+    }
+
+    private void handleChunkReply(final Message<byte[]> message, final int length, final int chunkSize, final Buffer buffer) {
+
+        byte[] bytes = message.body();
+        buffer.appendBytes(bytes);
+
+        if (bytes.length < chunkSize) {
+            assertEquals(length, buffer.length());
+            testComplete();
+        } else {
+            message.reply(new JsonObject(), new Handler<Message<byte[]>>() {
+                @Override
+                public void handle(Message<byte[]> reply) {
+                    handleChunkReply(reply, length, chunkSize, buffer);
+                }
+            });
+        }
 
     }
 

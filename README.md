@@ -108,13 +108,15 @@ Send a JSON message to the module main address:
         "action": "getChunk",
         "files_id": <files_id>,
         "n": <n>,
-        "bucket": <bucket>
+        "bucket": <bucket>,
+        "reply": <reply>
     }
 
 Where:
 * `files_id` is the ObjectId of the file
 * `n` is the chunk number (first chunk is 0).
 * `bucket` is GridFS bucket the file was saved under.  The default value is "fs".
+* `reply` is a boolean flag indicating a reply message handler should be added to send the next chunk
 
 
 An example would be:
@@ -123,7 +125,8 @@ An example would be:
         "action": "getChunk",
         "files_id": "51d864754728011036adc575",
         "n": 0,
-        "bucket": "my_bucket"
+        "bucket": "my_bucket",
+        "reply": true
     }
 
 When the get chunk completes successfully, a reply message with the chunk data byte[] in the message body is returned.

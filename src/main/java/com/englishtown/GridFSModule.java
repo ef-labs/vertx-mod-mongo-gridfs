@@ -284,7 +284,7 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
 
     }
 
-    public void getChunk(Message<JsonObject> message, JsonObject jsonObject) {
+    public void getChunk(Message<JsonObject> message, final JsonObject jsonObject) {
 
         ObjectId id = getObjectId(message, jsonObject, "files_id");
 
@@ -314,7 +314,21 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
         }
 
         byte[] data = (byte[]) result.get("data");
-        message.reply(data);
+        boolean reply = jsonObject.getBoolean("reply", false);
+        Handler<Message<JsonObject>> replyHandler = null;
+
+        if (reply) {
+            replyHandler = new Handler<Message<JsonObject>>() {
+                @Override
+                public void handle(Message<JsonObject> reply) {
+                    int n = jsonObject.getInteger("n") + 1;
+                    jsonObject.putNumber("n", n);
+                    getChunk(reply, jsonObject);
+                }
+            };
+        }
+
+        message.reply(data, replyHandler);
 
     }
 
