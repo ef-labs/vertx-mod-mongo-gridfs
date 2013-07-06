@@ -23,7 +23,7 @@
 
 package com.englishtown.integration.java;
 
-import com.englishtown.GridFSModule;
+import com.englishtown.vertx.GridFSModule;
 import org.bson.types.ObjectId;
 import org.junit.Test;
 import org.vertx.java.core.AsyncResult;

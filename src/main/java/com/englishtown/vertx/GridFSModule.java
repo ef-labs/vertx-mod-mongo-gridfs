@@ -21,7 +21,7 @@
  * THE SOFTWARE.
  */
 
-package com.englishtown;
+package com.englishtown.vertx;
 
 import com.mongodb.*;
 import com.mongodb.gridfs.GridFS;

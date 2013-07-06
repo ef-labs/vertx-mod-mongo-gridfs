@@ -1,5 +1,5 @@
 {
-    "main": "com.englishtown.GridFSModule",
+    "main": "com.englishtown.vertx.GridFSModule",
     "worker": true,
     "multi-threaded": true,
 
