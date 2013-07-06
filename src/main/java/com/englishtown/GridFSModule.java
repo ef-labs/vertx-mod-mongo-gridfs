@@ -21,7 +21,7 @@ import java.util.Date;
 /**
  * An EventBus module providing MongoDB GridFS functionality
  */
-public class GridFSModule extends Verticle {
+public class GridFSModule extends Verticle implements Handler<Message<JsonObject>> {
 
     public static final String DEFAULT_ADDRESS = "et.mongo.gridfs";
 
@@ -66,31 +66,14 @@ public class GridFSModule extends Verticle {
             logger.error("Failed to connect to mongo server", e);
         }
 
-        eb.registerHandler(address + "/getFileInfo", new Handler<Message<JsonObject>>() {
-            @Override
-            public void handle(Message<JsonObject> message) {
-                getFileInfo(message);
-            }
-        });
+        // Main Message<JsonObject> handler that inspects an "action" field
+        eb.registerHandler(address, this);
 
-        eb.registerHandler(address + "/getChunk", new Handler<Message<JsonObject>>() {
-            @Override
-            public void handle(Message<JsonObject> message) {
-                getChunk(message);
-            }
-        });
-
+        // Message<byte[]> handler to save file chunks
         eb.registerHandler(address + "/saveChunk", new Handler<Message<byte[]>>() {
             @Override
             public void handle(Message<byte[]> message) {
                 saveChunk(message);
-            }
-        });
-
-        eb.registerHandler(address + "/saveFileInfo", new Handler<Message<JsonObject>>() {
-            @Override
-            public void handle(Message<JsonObject> message) {
-                saveFileInfo(message);
             }
         });
 
@@ -101,9 +84,36 @@ public class GridFSModule extends Verticle {
         mongo.close();
     }
 
-    public void saveFileInfo(Message<JsonObject> message) {
+    @Override
+    public void handle(Message<JsonObject> message) {
 
         JsonObject jsonObject = message.body();
+        String action = getRequiredString("action", message, jsonObject);
+        if (action == null) {
+            return;
+        }
+
+        try {
+            switch (action) {
+                case "getFile":
+                    getFile(message, jsonObject);
+                    break;
+                case "getChunk":
+                    getChunk(message, jsonObject);
+                    break;
+                case "saveFile":
+                    saveFile(message, jsonObject);
+                    break;
+                default:
+                    sendError(message, "action " + action + " is not supported");
+            }
+
+        } catch (Throwable e) {
+            sendError(message, "Unexpected error in " + action + ": " + e.getMessage(), e);
+        }
+    }
+
+    public void saveFile(Message<JsonObject> message, JsonObject jsonObject) {
 
         ObjectId id = getObjectId(message, jsonObject, "id");
         if (id == null) {
@@ -158,10 +168,19 @@ public class GridFSModule extends Verticle {
         }
     }
 
+    /**
+     * Handler for saving file chunks.
+     *
+     * @param message The message body is a byte[] where the first four bytes are an int indicating how many bytes are
+     *                the json fields, the remaining bytes are the file chunk to write to MongoDB
+     */
     public void saveChunk(Message<byte[]> message) {
 
-        try {
+        JsonObject jsonObject;
+        byte[] data;
 
+        // Parse the byte[] message body
+        try {
             byte[] body = message.body();
 
             // First four bytes indicate the json string length
@@ -172,17 +191,19 @@ public class GridFSModule extends Verticle {
             int from = 4;
             byte[] jsonBytes = Arrays.copyOfRange(body, from, from + len);
             String jsonString = decode(jsonBytes);
-            JsonObject jsonObject = new JsonObject(jsonString);
+            jsonObject = new JsonObject(jsonString);
 
             // Remaining bytes are the chunk to be written
             from += len;
-            byte[] data = Arrays.copyOfRange(body, from, body.length);
-
-            saveChunk(message, jsonObject, data);
+            data = Arrays.copyOfRange(body, from, body.length);
 
         } catch (RuntimeException e) {
-            sendError(message, "error parsing byte[] message", e);
+            sendError(message, "error parsing byte[] message.  see the documentation for the correct format", e);
+            return;
         }
+
+        // Now save the chunk
+        saveChunk(message, jsonObject, data);
 
     }
 
@@ -229,87 +250,72 @@ public class GridFSModule extends Verticle {
 
     }
 
-    public void getFileInfo(Message<JsonObject> message) {
+    public void getFile(Message<JsonObject> message, JsonObject jsonObject) {
 
-        try {
-            GridFSDBFile file = getFile(message);
-            JsonObject fileInfo = new JsonObject();
-
-            fileInfo.putString("filename", file.getFilename())
-                    .putString("contentType", file.getContentType())
-                    .putNumber("length", file.getLength())
-                    .putNumber("chunkSize", file.getChunkSize())
-                    .putNumber("uploadDate", file.getUploadDate().getTime());
-
-            DBObject metaData = file.getMetaData();
-            if (metaData != null) {
-                fileInfo.putObject("metaData", new JsonObject(JSON.serialize(metaData)));
-            }
-
-            // Send file info
-            sendOK(message, fileInfo);
-
-        } catch (RuntimeException e) {
-            sendError(message, "Runtime error", e);
-        }
-
-    }
-
-    public void getChunk(Message<JsonObject> message) {
-
-        try {
-            ObjectId id = getObjectId(message, message.body(), "id");
-
-            Integer n = message.body().getInteger("n");
-            if (n == null) {
-                sendError(message, "n (chunk number) is required");
-                return;
-            }
-            if (n < 0) {
-                sendError(message, "n must be greater than or equal to zero");
-                return;
-            }
-
-            String bucket = message.body().getString("bucket", GridFS.DEFAULT_BUCKET);
-
-            DBCollection collection = db.getCollection(bucket + ".chunks");
-            DBObject dbObject = BasicDBObjectBuilder.start("files_id", id).add("n", n).get();
-
-            DBObject result = collection.findOne(dbObject);
-
-            if (result == null) {
-                message.reply(new byte[0]);
-                return;
-            }
-
-            byte[] data = (byte[]) result.get("data");
-            message.reply(data);
-
-        } catch (Throwable e) {
-            sendError(message, "Error getting byte range", e);
-        }
-
-    }
-
-    public GridFSDBFile getFile(Message<JsonObject> message) {
-
-        ObjectId objectId = getObjectId(message, message.body(), "id");
+        ObjectId objectId = getObjectId(message, jsonObject, "id");
         if (objectId == null) {
-            return null;
+            return;
         }
 
         // Optional bucket, default is "fs"
-        String bucket = message.body().getString("bucket", GridFS.DEFAULT_BUCKET);
-
+        String bucket = jsonObject.getString("bucket", GridFS.DEFAULT_BUCKET);
         GridFS files = new GridFS(db, bucket);
 
         GridFSDBFile file = files.findOne(objectId);
-
         if (file == null) {
             sendError(message, "File does not exist: " + objectId.toString());
+            return;
         }
 
-        return file;
+        JsonObject fileInfo = new JsonObject()
+                .putString("filename", file.getFilename())
+                .putString("contentType", file.getContentType())
+                .putNumber("length", file.getLength())
+                .putNumber("chunkSize", file.getChunkSize())
+                .putNumber("uploadDate", file.getUploadDate().getTime());
+
+        DBObject metaData = file.getMetaData();
+        if (metaData != null) {
+            fileInfo.putObject("metaData", new JsonObject(JSON.serialize(metaData)));
+        }
+
+        // Send file info
+        sendOK(message, fileInfo);
+
+    }
+
+    public void getChunk(Message<JsonObject> message, JsonObject jsonObject) {
+
+        ObjectId id = getObjectId(message, jsonObject, "files_id");
+
+        Integer n = jsonObject.getInteger("n");
+        if (n == null) {
+            sendError(message, "n (chunk number) is required");
+            return;
+        }
+        if (n < 0) {
+            sendError(message, "n must be greater than or equal to zero");
+            return;
+        }
+
+        String bucket = jsonObject.getString("bucket", GridFS.DEFAULT_BUCKET);
+
+        DBCollection collection = db.getCollection(bucket + ".chunks");
+        DBObject dbObject = BasicDBObjectBuilder
+                .start("files_id", id)
+                .add("n", n)
+                .get();
+
+        DBObject result = collection.findOne(dbObject);
+
+        if (result == null) {
+            message.reply(new byte[0]);
+            return;
+        }
+
+        byte[] data = (byte[]) result.get("data");
+        message.reply(data);
+
     }
 
     public void sendError(Message message, String error) {
@@ -342,9 +348,8 @@ public class GridFSModule extends Verticle {
 
     private ObjectId getObjectId(Message message, JsonObject jsonObject, String fieldName) {
 
-        String idString = jsonObject.getString(fieldName);
+        String idString = getRequiredString(fieldName, message, jsonObject);
         if (idString == null) {
-            sendError(message, fieldName + " is missing");
             return null;
         }
 
@@ -355,6 +360,14 @@ public class GridFSModule extends Verticle {
             return null;
         }
 
+    }
+
+    private String getRequiredString(String fieldName, Message message, JsonObject jsonObject) {
+        String value = jsonObject.getString(fieldName);
+        if (value == null) {
+            sendError(message, fieldName + " is missing");
+        }
+        return value;
     }
 
 }

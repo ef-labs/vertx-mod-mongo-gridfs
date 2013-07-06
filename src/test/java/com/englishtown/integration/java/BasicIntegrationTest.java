@@ -8,41 +8,28 @@ import org.vertx.java.core.Future;
 import org.vertx.java.core.Handler;
 import org.vertx.java.core.buffer.Buffer;
 import org.vertx.java.core.eventbus.Message;
-import org.vertx.java.core.eventbus.impl.JsonObjectMessage;
 import org.vertx.java.core.json.JsonObject;
 import org.vertx.testtools.TestVerticle;
 
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 
 import static org.vertx.testtools.VertxAssert.*;
 
 /**
- * Simple integration test which shows tests deploying other verticles, using the Vert.x API etc
+ * Integration test showing a GridFS write and then reading it back
  */
 public class BasicIntegrationTest extends TestVerticle {
 
     @Test
-    public void testWriteFile() throws Exception {
-
-        ObjectId id = new ObjectId();
-
-        writeFile(id, new Handler<Boolean>() {
-            @Override
-            public void handle(Boolean result) {
-                if (result) {
-                    testComplete();
-                } else {
-                    fail();
-                }
-            }
-        });
-    }
-
-    @Test
     public void testWriteAndReadFile() throws Exception {
 
+        // Create a MongoDB ObjectId
         final ObjectId id = new ObjectId();
 
+        // Handler for when read is complete
         final Handler<Boolean> readDoneHandler = new Handler<Boolean>() {
             @Override
             public void handle(Boolean result) {
@@ -54,25 +41,28 @@ public class BasicIntegrationTest extends TestVerticle {
             }
         };
 
+        // Handler for when write is complete and then triggers the read to start
         Handler<Boolean> writeDoneHandler = new Handler<Boolean>() {
             @Override
             public void handle(Boolean result) {
                 if (result) {
-                    readFile(id, readDoneHandler);
+                    startReadFile(id, readDoneHandler);
                 } else {
                     fail();
                 }
             }
         };
 
-        writeFile(id, writeDoneHandler);
+        // Start the write operation
+        startWriteFile(id, writeDoneHandler);
 
     }
 
-    private void writeFile(ObjectId id, final Handler<Boolean> doneHandler) throws Exception {
+    private void startWriteFile(ObjectId id, final Handler<Boolean> doneHandler) throws Exception {
 
         String files_id = id.toString();
 
+        // Save image in chunks of 100k
         int chunkSize = 102400;
         byte[] bytes = new byte[chunkSize];
 
@@ -80,6 +70,7 @@ public class BasicIntegrationTest extends TestVerticle {
         // At least one reply for saving file info
         results.expectedReplies++;
 
+        // Reply handler for writing chunks and the file info
         Handler<Message<JsonObject>> replyHandler = new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> reply) {
@@ -88,6 +79,7 @@ public class BasicIntegrationTest extends TestVerticle {
 
                 if ("ok".equals(status)) {
                     results.count++;
+                    // Check if we're done
                     if (results.expectedReplies == results.count) {
                         doneHandler.handle(true);
                     }
@@ -125,6 +117,7 @@ public class BasicIntegrationTest extends TestVerticle {
         }
 
         JsonObject fileInfo = new JsonObject()
+                .putString("action", "saveFile")
                 .putString("id", files_id)
                 .putNumber("length", totalLength)
                 .putNumber("chunkSize", chunkSize)
@@ -132,15 +125,15 @@ public class BasicIntegrationTest extends TestVerticle {
                 .putString("filename", "image.jpg")
                 .putString("contentType", "image/jpeg");
 
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/saveFileInfo", fileInfo, replyHandler);
+        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS, fileInfo, replyHandler);
 
     }
 
-    private void readFile(final ObjectId id, final Handler<Boolean> doneHandler) {
+    private void startReadFile(final ObjectId id, final Handler<Boolean> doneHandler) {
 
-        JsonObject message = new JsonObject().putString("id", id.toString());
+        JsonObject message = new JsonObject().putString("id", id.toString()).putString("action", "getFile");
 
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getFileInfo", message, new Handler<Message<JsonObject>>() {
+        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS, message, new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> reply) {
                 String status = reply.body().getString("status");
@@ -151,10 +144,11 @@ public class BasicIntegrationTest extends TestVerticle {
                     final int length = reply.body().getInteger("length");
 
                     JsonObject chunkMessage = new JsonObject()
-                            .putString("id", id.toString())
+                            .putString("action", "getChunk")
+                            .putString("files_id", id.toString())
                             .putNumber("n", 0);
 
-                    vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getChunk", chunkMessage, new Handler<Message<byte[]>>() {
+                    vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS, chunkMessage, new Handler<Message<byte[]>>() {
                         @Override
                         public void handle(Message<byte[]> reply) {
                             byte[] chunk = reply.body();
@@ -174,16 +168,13 @@ public class BasicIntegrationTest extends TestVerticle {
     }
 
     /**
-     * Override this method to signify that start is complete sometime _after_ the start() method has returned
-     * This is useful if your verticle deploys other verticles or modules and you don't want this verticle to
-     * be considered started until the other modules and verticles have been started.
-     *
-     * @param startedResult When you are happy your verticle is started set the result
+     * {@inheritDoc}
      */
     @Override
     public void start(final Future<Void> startedResult) {
 
-        container.deployVerticle(GridFSModule.class.getName(), new Handler<AsyncResult<String>>() {
+        JsonObject config = loadConfig();
+        container.deployVerticle(GridFSModule.class.getName(), config, new Handler<AsyncResult<String>>() {
             @Override
             public void handle(AsyncResult<String> result) {
                 if (result.succeeded()) {
@@ -196,4 +187,27 @@ public class BasicIntegrationTest extends TestVerticle {
         });
 
     }
+
+    private JsonObject loadConfig() {
+
+        try (InputStream stream = this.getClass().getResourceAsStream("/config.json")) {
+            StringBuilder sb = new StringBuilder();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
+
+            String line = reader.readLine();
+            while (line != null) {
+                sb.append(line).append('\n');
+                line = reader.readLine();
+            }
+
+            return new JsonObject(sb.toString());
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            fail();
+            return new JsonObject();
+        }
+
+    }
+
 }
