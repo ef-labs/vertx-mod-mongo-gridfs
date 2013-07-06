@@ -29,8 +29,8 @@
 
         <!--Dependency versions-->
         <mongo.java.driver.version>2.11.2</mongo.java.driver.version>
-        <vertx.version>2.0.0-CR1</vertx.version>
-        <vertx.testtools.version>2.0.0-CR1</vertx.testtools.version>
+        <vertx.version>2.0.0-CR2</vertx.version>
+        <vertx.testtools.version>2.0.0-CR2</vertx.testtools.version>
         <junit.version>4.11</junit.version>
         <mockito.version>1.9.5</mockito.version>
 
@@ -38,20 +38,13 @@
         <maven.compiler.plugin.version>3.0</maven.compiler.plugin.version>
         <maven.resources.plugin.version>2.6</maven.resources.plugin.version>
         <maven.clean.plugin.version>2.5</maven.clean.plugin.version>
-        <maven.vertx.plugin.version>1.0.0-CR2-SNAPSHOT</maven.vertx.plugin.version>
+        <maven.vertx.plugin.version>1.0.0-CR2</maven.vertx.plugin.version>
         <maven.surefire.plugin.version>2.14</maven.surefire.plugin.version>
         <maven.failsafe.plugin.version>2.14</maven.failsafe.plugin.version>
         <maven.surefire.report.plugin.version>2.14</maven.surefire.report.plugin.version>
         <maven.javadoc.plugin.version>2.9</maven.javadoc.plugin.version>
         <maven.dependency.plugin.version>2.7</maven.dependency.plugin.version>
     </properties>
-
-    <repositories>
-        <repository>
-            <id>sonatype-nexus-snapshots</id>
-            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-        </repository>
-    </repositories>
 
     <dependencies>
         <!--Vertx provided dependencies-->
@@ -264,4 +257,21 @@
             </plugin>
         </plugins>
     </reporting>
+
+    <distributionManagement>
+        <site>
+            <id>sling.englishtown.com</id>
+            <url>
+                dav:https://sling.englishtown.com/content/docs/${project.groupId}/${project.artifactId}/${project.version}
+            </url>
+        </site>
+    </distributionManagement>
+
+    <scm>
+        <connection>scm:git:ssh://git@github.com/englishtown/${project.artifactId}.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/englishtown/${project.artifactId}.git</developerConnection>
+        <tag>HEAD</tag>
+        <url>https://github.com/englishtown/${project.artifactId}</url>
+    </scm>
+
 </project>

@@ -3,6 +3,7 @@
 Provides MongoDB GridFS support via the Vert.x event bus keeping file chunks in a binary format.  See the MongoDB site for more information on GridFS:
 http://docs.mongodb.org/manual/reference/gridfs/
 
+[![Build Status](https://travis-ci.org/englishtown/vertx-mod-mongo-gridfs.png)](https://travis-ci.org/englishtown/vertx-mod-mongo-gridfs)
 
 ## Dependencies
 
