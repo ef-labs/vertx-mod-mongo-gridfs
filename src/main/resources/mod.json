@@ -4,7 +4,7 @@
     "multi-threaded": true,
 
     "description": "Read and write binary files to mongodb following the GridFS spec",
-    "licenses": ["The Apache Software License Version 2.0"],
+    "licenses": ["The MIT License"],
     "author": "adrianluisgonzalez",
     "keywords": ["MongoDB", "Mongo", "GridFS"],
     "homepage": "https://github.com/englishtown/vertx-mod-mongo-gridfs"
