@@ -24,10 +24,7 @@
 package com.englishtown.integration.java;
 
 import com.englishtown.vertx.GridFSModule;
-import com.mongodb.DB;
 import com.mongodb.DBObject;
-import com.mongodb.Mongo;
-import com.mongodb.MongoClient;
 import com.mongodb.gridfs.GridFS;
 import com.mongodb.gridfs.GridFSDBFile;
 import org.bson.types.ObjectId;
@@ -40,7 +37,6 @@ import org.vertx.java.core.json.JsonObject;
 import org.vertx.java.core.logging.Logger;
 import org.vertx.testtools.TestVerticle;
 
-import java.net.UnknownHostException;
 import java.util.Date;
 
 import static org.vertx.testtools.VertxAssert.*;
@@ -61,7 +57,7 @@ public class SaveFileIntegrationTest extends TestVerticle {
         eventBus.send(address, new JsonObject(), new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> message) {
-                verifyErrorReply(message, "action must be specified");
+                IntegrationTestHelper.verifyErrorReply(message, "action must be specified");
             }
         });
 
@@ -76,7 +72,7 @@ public class SaveFileIntegrationTest extends TestVerticle {
         eventBus.send(address, message, new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> message) {
-                verifyErrorReply(message, "id must be specified");
+                IntegrationTestHelper.verifyErrorReply(message, "id must be specified");
             }
         });
 
@@ -92,7 +88,7 @@ public class SaveFileIntegrationTest extends TestVerticle {
         eventBus.send(address, message, new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> message) {
-                verifyErrorReply(message, "length must be specified");
+                IntegrationTestHelper.verifyErrorReply(message, "length must be specified");
             }
         });
 
@@ -109,7 +105,7 @@ public class SaveFileIntegrationTest extends TestVerticle {
         eventBus.send(address, message, new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> message) {
-                verifyErrorReply(message, "chunkSize must be specified");
+                IntegrationTestHelper.verifyErrorReply(message, "chunkSize must be specified");
             }
         });
 
@@ -142,17 +138,7 @@ public class SaveFileIntegrationTest extends TestVerticle {
             public void handle(Message<JsonObject> message) {
                 assertEquals("ok", message.body().getString("status"));
 
-                Mongo mongo = null;
-                try {
-                    mongo = new MongoClient(config.getString("host", "localhost"), config.getInteger("port", 27017));
-                } catch (UnknownHostException e) {
-                    fail();
-                    testComplete();
-                    return;
-                }
-
-                DB db = mongo.getDB(config.getString("db_name", "default_db"));
-                GridFS gridFS = new GridFS(db, bucket);
+                GridFS gridFS = IntegrationTestHelper.getGridFS(config, bucket);
                 GridFSDBFile file = gridFS.find(id);
                 assertNotNull(file);
                 assertEquals(length, file.getLength());
@@ -171,17 +157,11 @@ public class SaveFileIntegrationTest extends TestVerticle {
 
     }
 
-    private void verifyErrorReply(Message<JsonObject> message, String error) {
-        assertEquals("error", message.body().getString("status"));
-        assertEquals(error, message.body().getString("message"));
-        testComplete();
-    }
-
     @Override
     public void start(Future<Void> startedResult) {
         eventBus = vertx.eventBus();
         logger = container.logger();
-        config = InitializationHelper.init(this, startedResult);
+        config = IntegrationTestHelper.onVerticleStart(this, startedResult);
     }
 
 }

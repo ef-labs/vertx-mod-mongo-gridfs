@@ -203,7 +203,7 @@ public class BasicIntegrationTest extends TestVerticle {
     public void start(Future<Void> startedResult) {
         eventBus = vertx.eventBus();
         logger = container.logger();
-        InitializationHelper.init(this, startedResult);
+        IntegrationTestHelper.onVerticleStart(this, startedResult);
     }
 
 }
