@@ -29,6 +29,7 @@ import com.mongodb.gridfs.GridFSDBFile;
 import com.mongodb.util.JSON;
 import org.bson.types.ObjectId;
 import org.vertx.java.core.Handler;
+import org.vertx.java.core.buffer.Buffer;
 import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonObject;
@@ -93,9 +94,9 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
         eb.registerHandler(address, this);
 
         // Message<byte[]> handler to save file chunks
-        eb.registerHandler(address + "/saveChunk", new Handler<Message<byte[]>>() {
+        eb.registerHandler(address + "/saveChunk", new Handler<Message<Buffer>>() {
             @Override
-            public void handle(Message<byte[]> message) {
+            public void handle(Message<Buffer> message) {
                 saveChunk(message);
             }
         });
@@ -194,31 +195,29 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
     /**
      * Handler for saving file chunks.
      *
-     * @param message The message body is a byte[] where the first four bytes are an int indicating how many bytes are
+     * @param message The message body is a Buffer where the first four bytes are an int indicating how many bytes are
      *                the json fields, the remaining bytes are the file chunk to write to MongoDB
      */
-    public void saveChunk(Message<byte[]> message) {
+    public void saveChunk(Message<Buffer> message) {
 
         JsonObject jsonObject;
         byte[] data;
 
         // Parse the byte[] message body
         try {
-            byte[] body = message.body();
+            Buffer body = message.body();
 
             // First four bytes indicate the json string length
-            ByteBuffer byteBuffer = ByteBuffer.wrap(body, 0, 4);
-            int len = byteBuffer.getInt();
+            int len = body.getInt(0);
 
             // Decode json
             int from = 4;
-            byte[] jsonBytes = Arrays.copyOfRange(body, from, from + len);
-            String jsonString = decode(jsonBytes);
-            jsonObject = new JsonObject(jsonString);
+            byte[] jsonBytes = body.getBytes(from, from + len);
+            jsonObject = new JsonObject(decode(jsonBytes));
 
             // Remaining bytes are the chunk to be written
             from += len;
-            data = Arrays.copyOfRange(body, from, body.length);
+            data = body.getBytes(from, body.length());
 
         } catch (RuntimeException e) {
             sendError(message, "error parsing byte[] message.  see the documentation for the correct format", e);
@@ -230,10 +229,10 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
 
     }
 
-    public void saveChunk(Message<byte[]> message, JsonObject jsonObject, byte[] data) {
+    public void saveChunk(Message<Buffer> message, JsonObject jsonObject, byte[] data) {
 
         if (data == null || data.length == 0) {
-            sendError(message, "chunk data is null or empty");
+            sendError(message, "chunk data is missing");
             return;
         }
 
@@ -242,9 +241,8 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
             return;
         }
 
-        Integer n = jsonObject.getInteger("n");
+        Integer n = getRequiredInt("n", message, jsonObject, 0);
         if (n == null) {
-            sendError(message, "n (chunk number) is missing");
             return;
         }
 
@@ -311,13 +309,8 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
 
         ObjectId id = getObjectId(message, jsonObject, "files_id");
 
-        Integer n = jsonObject.getInteger("n");
+        Integer n = getRequiredInt("n", message, jsonObject, 0);
         if (n == null) {
-            sendError(message, "n (chunk number) is required");
-            return;
-        }
-        if (n < 0) {
-            sendError(message, "n must be greater than or equal to zero");
             return;
         }
 
@@ -351,25 +344,26 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
             };
         }
 
+        // TODO: Change to reply with a Buffer instead of a byte[]?
         message.reply(data, replyHandler);
 
     }
 
-    public void sendError(Message message, String error) {
+    public <T> void sendError(Message<T> message, String error) {
         sendError(message, error, null);
     }
 
-    public void sendError(Message message, String error, Throwable e) {
+    public <T> void sendError(Message<T> message, String error, Throwable e) {
         logger.error(error, e);
         JsonObject result = new JsonObject().putString("status", "error").putString("message", error);
         message.reply(result);
     }
 
-    public void sendOK(Message message) {
+    public <T> void sendOK(Message<T> message) {
         sendOK(message, new JsonObject());
     }
 
-    public void sendOK(Message message, JsonObject response) {
+    public <T> void sendOK(Message<T> message, JsonObject response) {
         response.putString("status", "ok");
         message.reply(response);
     }
@@ -383,7 +377,7 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
         }
     }
 
-    private ObjectId getObjectId(Message message, JsonObject jsonObject, String fieldName) {
+    private <T> ObjectId getObjectId(Message<T> message, JsonObject jsonObject, String fieldName) {
 
         String idString = getRequiredString(fieldName, message, jsonObject);
         if (idString == null) {
@@ -399,7 +393,7 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
 
     }
 
-    private String getRequiredString(String fieldName, Message message, JsonObject jsonObject) {
+    private <T> String getRequiredString(String fieldName, Message<T> message, JsonObject jsonObject) {
         String value = jsonObject.getString(fieldName);
         if (value == null) {
             sendError(message, fieldName + " must be specified");
@@ -407,14 +401,14 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
         return value;
     }
 
-    private Integer getRequiredInt(String fieldName, Message message, JsonObject jsonObject, int minValue) {
+    private <T> Integer getRequiredInt(String fieldName, Message<T> message, JsonObject jsonObject, int minValue) {
         Integer value = jsonObject.getInteger(fieldName);
         if (value == null) {
             sendError(message, fieldName + " must be specified");
             return null;
         }
         if (value < minValue) {
-            sendError(message, fieldName + " must be greater than " + minValue);
+            sendError(message, fieldName + " must be greater than or equal to " + minValue);
             return null;
         }
         return value;

@@ -198,7 +198,7 @@ Where `message` is an error message.
 
 Saves a chunk of binary data in the GridFS format.
 
-Send a byte[] message to the module main address + "/saveChunk".  The byte[] is made up of 3 parts.
+Send a Buffer message to the module main address + "/saveChunk".  The Buffer is made up of 3 parts.
 
 The first four bytes are an int defining the length of a UTF-8 encoded json string.  The json bytes are next and the remaining bytes are the chunk to be saved.
 

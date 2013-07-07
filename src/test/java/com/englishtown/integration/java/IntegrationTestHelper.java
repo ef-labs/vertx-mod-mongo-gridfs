@@ -77,13 +77,9 @@ public class IntegrationTestHelper {
 
     }
 
-    public static GridFS getGridFS(JsonObject config) {
-        return getGridFS(config, null);
-    }
-
     public static GridFS getGridFS(JsonObject config, String bucket) {
 
-        Mongo mongo = null;
+        Mongo mongo;
         try {
             mongo = new MongoClient(config.getString("host", "localhost"), config.getInteger("port", 27017));
         } catch (UnknownHostException e) {

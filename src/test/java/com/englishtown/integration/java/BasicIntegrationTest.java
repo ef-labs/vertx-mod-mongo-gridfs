@@ -45,9 +45,8 @@ import static org.vertx.testtools.VertxAssert.*;
  */
 public class BasicIntegrationTest extends TestVerticle {
 
-    protected EventBus eventBus;
-    protected Logger logger;
-    protected String address = GridFSModule.DEFAULT_ADDRESS;
+    private EventBus eventBus;
+    private final String address = GridFSModule.DEFAULT_ADDRESS;
 
     @Test
     public void testWriteAndReadFile() throws Exception {
@@ -122,7 +121,7 @@ public class BasicIntegrationTest extends TestVerticle {
             results.expectedReplies++;
 
             // Send chunk to event bus
-            vertx.eventBus().send(address + "/saveChunk", buffer.getBytes(), replyHandler);
+            eventBus.send(address + "/saveChunk", buffer, replyHandler);
 
             len = inputStream.read(bytes);
             if (len > 0) {
@@ -147,7 +146,7 @@ public class BasicIntegrationTest extends TestVerticle {
 
         JsonObject message = new JsonObject().putString("id", id.toString()).putString("action", "getFile");
 
-        vertx.eventBus().send(address, message, new Handler<Message<JsonObject>>() {
+        eventBus.send(address, message, new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> reply) {
                 String status = reply.body().getString("status");
@@ -163,7 +162,7 @@ public class BasicIntegrationTest extends TestVerticle {
                             .putNumber("n", 0)
                             .putBoolean("reply", true);
 
-                    vertx.eventBus().send(address, chunkMessage, new Handler<Message<byte[]>>() {
+                    eventBus.send(address, chunkMessage, new Handler<Message<byte[]>>() {
                         @Override
                         public void handle(Message<byte[]> reply) {
                             handleChunkReply(reply, length, chunkSize, new Buffer());
@@ -202,7 +201,6 @@ public class BasicIntegrationTest extends TestVerticle {
     @Override
     public void start(Future<Void> startedResult) {
         eventBus = vertx.eventBus();
-        logger = container.logger();
         IntegrationTestHelper.onVerticleStart(this, startedResult);
     }
 

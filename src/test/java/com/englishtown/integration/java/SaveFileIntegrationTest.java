@@ -47,9 +47,8 @@ import static org.vertx.testtools.VertxAssert.*;
 public class SaveFileIntegrationTest extends TestVerticle {
 
     private EventBus eventBus;
-    private Logger logger;
     private JsonObject config;
-    private String address = GridFSModule.DEFAULT_ADDRESS;
+    private final String address = GridFSModule.DEFAULT_ADDRESS;
 
     @Test
     public void testSaveFile_Empty_Json() {
@@ -160,7 +159,6 @@ public class SaveFileIntegrationTest extends TestVerticle {
     @Override
     public void start(Future<Void> startedResult) {
         eventBus = vertx.eventBus();
-        logger = container.logger();
         config = IntegrationTestHelper.onVerticleStart(this, startedResult);
     }
 

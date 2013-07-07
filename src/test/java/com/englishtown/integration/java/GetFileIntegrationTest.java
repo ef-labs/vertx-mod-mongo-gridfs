@@ -43,9 +43,8 @@ import static org.vertx.testtools.VertxAssert.testComplete;
 public class GetFileIntegrationTest extends TestVerticle {
 
     private EventBus eventBus;
-    private Logger logger;
     private JsonObject config;
-    private String address = GridFSModule.DEFAULT_ADDRESS;
+    private final String address = GridFSModule.DEFAULT_ADDRESS;
 
     @Test
     public void testGetFile_Missing_Id() {
@@ -94,7 +93,6 @@ public class GetFileIntegrationTest extends TestVerticle {
     @Override
     public void start(Future<Void> startedResult) {
         eventBus = vertx.eventBus();
-        logger = container.logger();
         config = IntegrationTestHelper.onVerticleStart(this, startedResult);
     }
 
