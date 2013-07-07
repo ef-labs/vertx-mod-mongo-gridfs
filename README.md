@@ -194,13 +194,16 @@ If an error occurs when saving the file information a reply is returned:
 Where `message` is an error message.
 
 
-### saveChunk
+### Save Chunk
 
 Saves a chunk of binary data in the GridFS format.
 
-Send a Buffer message to the module main address + "/saveChunk".  The Buffer is made up of 3 parts.
+Send a Buffer message to the module main address + "/saveChunk".
 
-The first four bytes are an int defining the length of a UTF-8 encoded json string.  The json bytes are next and the remaining bytes are the chunk to be saved.
+The Buffer is made up of 3 parts:
+1. The first four bytes are an int defining the length of a UTF-8 encoded json string.
+2. The json bytes are next
+3. The remaining bytes are the chunk to be saved
 
 The json contains the following fields:
 
@@ -214,6 +217,35 @@ Where:
 * `files_id` is the ObjectId of the file
 * `n` is the chunk number (first chunk is 0).
 * `bucket` is GridFS bucket the file was saved under.  The default value is "fs".
+
+
+An example would be:
+
+    {
+        "files_id": "51d864754728011036adc575",
+        "n": 0,
+        "bucket": "my_bucket",
+    }
+
+
+An example of generating the message would be:
+
+```java
+public Buffer getMessage(String files_id, int chunkNumber, byte[] data) {
+    JsonObject jsonObject = new JsonObject()
+            .putString("files_id", files_id)
+            .putNumber("n", chunkNumber);
+    byte[] json = jsonObject.encode().getBytes("UTF-8");
+    byte[] data = getData(chunkNumber);
+
+    Buffer buffer = new Buffer();
+    buffer.appendInt(json.length);
+    buffer.appendBytes(json);
+    buffer.appendBytes(data);
+
+    return buffer;
+}
+```
 
 
 When the save completes successfully, a reply message is sent back to the sender with the following data:
