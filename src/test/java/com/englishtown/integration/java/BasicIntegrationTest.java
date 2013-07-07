@@ -26,18 +26,16 @@ package com.englishtown.integration.java;
 import com.englishtown.vertx.GridFSModule;
 import org.bson.types.ObjectId;
 import org.junit.Test;
-import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.Future;
 import org.vertx.java.core.Handler;
 import org.vertx.java.core.buffer.Buffer;
+import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.eventbus.Message;
 import org.vertx.java.core.json.JsonObject;
+import org.vertx.java.core.logging.Logger;
 import org.vertx.testtools.TestVerticle;
 
-import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.Arrays;
 
 import static org.vertx.testtools.VertxAssert.*;
@@ -46,6 +44,10 @@ import static org.vertx.testtools.VertxAssert.*;
  * Integration test showing a GridFS write and then reading it back
  */
 public class BasicIntegrationTest extends TestVerticle {
+
+    protected EventBus eventBus;
+    protected Logger logger;
+    protected String address = GridFSModule.DEFAULT_ADDRESS;
 
     @Test
     public void testWriteAndReadFile() throws Exception {
@@ -120,7 +122,7 @@ public class BasicIntegrationTest extends TestVerticle {
             results.expectedReplies++;
 
             // Send chunk to event bus
-            vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/saveChunk", buffer.getBytes(), replyHandler);
+            vertx.eventBus().send(address + "/saveChunk", buffer.getBytes(), replyHandler);
 
             len = inputStream.read(bytes);
             if (len > 0) {
@@ -137,7 +139,7 @@ public class BasicIntegrationTest extends TestVerticle {
                 .putString("filename", "image.jpg")
                 .putString("contentType", "image/jpeg");
 
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS, fileInfo, replyHandler);
+        vertx.eventBus().send(address, fileInfo, replyHandler);
 
     }
 
@@ -145,7 +147,7 @@ public class BasicIntegrationTest extends TestVerticle {
 
         JsonObject message = new JsonObject().putString("id", id.toString()).putString("action", "getFile");
 
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS, message, new Handler<Message<JsonObject>>() {
+        vertx.eventBus().send(address, message, new Handler<Message<JsonObject>>() {
             @Override
             public void handle(Message<JsonObject> reply) {
                 String status = reply.body().getString("status");
@@ -161,7 +163,7 @@ public class BasicIntegrationTest extends TestVerticle {
                             .putNumber("n", 0)
                             .putBoolean("reply", true);
 
-                    vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS, chunkMessage, new Handler<Message<byte[]>>() {
+                    vertx.eventBus().send(address, chunkMessage, new Handler<Message<byte[]>>() {
                         @Override
                         public void handle(Message<byte[]> reply) {
                             handleChunkReply(reply, length, chunkSize, new Buffer());
@@ -197,47 +199,11 @@ public class BasicIntegrationTest extends TestVerticle {
         public int count;
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public void start(final Future<Void> startedResult) {
-
-        JsonObject config = loadConfig();
-        container.deployVerticle(GridFSModule.class.getName(), config, new Handler<AsyncResult<String>>() {
-            @Override
-            public void handle(AsyncResult<String> result) {
-                if (result.succeeded()) {
-                    startedResult.setResult(null);
-                    BasicIntegrationTest.this.start();
-                } else {
-                    startedResult.setFailure(result.cause());
-                }
-            }
-        });
-
-    }
-
-    private JsonObject loadConfig() {
-
-        try (InputStream stream = this.getClass().getResourceAsStream("/config.json")) {
-            StringBuilder sb = new StringBuilder();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
-
-            String line = reader.readLine();
-            while (line != null) {
-                sb.append(line).append('\n');
-                line = reader.readLine();
-            }
-
-            return new JsonObject(sb.toString());
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            fail();
-            return new JsonObject();
-        }
-
+    public void start(Future<Void> startedResult) {
+        eventBus = vertx.eventBus();
+        logger = container.logger();
+        InitializationHelper.init(this, startedResult);
     }
 
 }

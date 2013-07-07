@@ -78,7 +78,7 @@ When the getFile completes successfully, a reply message is sent back to the sen
         "length": <length>,
         "chunkSize": <chunkSize>,
         "uploadDate": <uploadDate>,
-        "metaData": <metaData>
+        "metadata": <metadata>
     }
 
 Where:
@@ -87,7 +87,7 @@ Where:
 * `length` is the total file length in bytes
 * `chunkSize` is the size in bytes of each chunk
 * `uploadDate` is the long time of the upload in milliseconds since 1 Jan 1970
-* `metaData` is an optional json object with additional meta data
+* `metadata` is an optional json object with additional metadata
 
 If an error occurs in saving the document a reply is returned:
 

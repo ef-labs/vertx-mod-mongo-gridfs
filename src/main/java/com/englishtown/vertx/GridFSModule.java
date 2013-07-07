@@ -143,15 +143,13 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
             return;
         }
 
-        int length = jsonObject.getInteger("length", 0);
-        if (length <= 0) {
-            sendError(message, "length must be greater than zero");
+        Integer length = getRequiredInt("length", message, jsonObject, 1);
+        if (length == null) {
             return;
         }
 
-        int chunkSize = jsonObject.getInteger("chunkSize", 0);
-        if (chunkSize <= 0) {
-            sendError(message, "chunkSize must be greater than zero");
+        Integer chunkSize = getRequiredInt("chunkSize", message, jsonObject, 1);
+        if (chunkSize == null) {
             return;
         }
 
@@ -162,6 +160,7 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
 
         String filename = jsonObject.getString("filename");
         String contentType = jsonObject.getString("contentType");
+        JsonObject metadata = jsonObject.getObject("metadata");
 
         try {
             BasicDBObjectBuilder builder = BasicDBObjectBuilder.start()
@@ -172,6 +171,7 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
 
             if (filename != null) builder.add("filename", filename);
             if (contentType != null) builder.add("contentType", contentType);
+            if (metadata != null) builder.add("metadata", JSON.parse(metadata.encode()));
 
             DBObject dbObject = builder.get();
 
@@ -297,9 +297,9 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
                 .putNumber("chunkSize", file.getChunkSize())
                 .putNumber("uploadDate", file.getUploadDate().getTime());
 
-        DBObject metaData = file.getMetaData();
-        if (metaData != null) {
-            fileInfo.putObject("metaData", new JsonObject(JSON.serialize(metaData)));
+        DBObject metadata = file.getMetaData();
+        if (metadata != null) {
+            fileInfo.putObject("metadata", new JsonObject(JSON.serialize(metadata)));
         }
 
         // Send file info
@@ -402,7 +402,20 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
     private String getRequiredString(String fieldName, Message message, JsonObject jsonObject) {
         String value = jsonObject.getString(fieldName);
         if (value == null) {
-            sendError(message, fieldName + " is missing");
+            sendError(message, fieldName + " must be specified");
+        }
+        return value;
+    }
+
+    private Integer getRequiredInt(String fieldName, Message message, JsonObject jsonObject, int minValue) {
+        Integer value = jsonObject.getInteger(fieldName);
+        if (value == null) {
+            sendError(message, fieldName + " must be specified");
+            return null;
+        }
+        if (value < minValue) {
+            sendError(message, fieldName + " must be greater than " + minValue);
+            return null;
         }
         return value;
     }
