@@ -1,143 +1,207 @@
+/*
+ * The MIT License (MIT)
+ * Copyright © 2013 Englishtown <opensource@englishtown.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the “Software”), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
 package com.englishtown.integration.java;
 
-import com.englishtown.GridFSModule;
+import com.englishtown.vertx.GridFSModule;
+import org.bson.types.ObjectId;
 import org.junit.Test;
-import org.vertx.java.core.AsyncResult;
 import org.vertx.java.core.Future;
 import org.vertx.java.core.Handler;
+import org.vertx.java.core.buffer.Buffer;
+import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.eventbus.Message;
-import org.vertx.java.core.eventbus.impl.JsonObjectMessage;
 import org.vertx.java.core.json.JsonObject;
+import org.vertx.java.core.logging.Logger;
 import org.vertx.testtools.TestVerticle;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.io.InputStream;
+import java.util.Arrays;
 
-import static org.vertx.testtools.VertxAssert.assertEquals;
-import static org.vertx.testtools.VertxAssert.fail;
-import static org.vertx.testtools.VertxAssert.testComplete;
+import static org.vertx.testtools.VertxAssert.*;
 
 /**
- * Simple integration test which shows tests deploying other verticles, using the Vert.x API etc
+ * Integration test showing a GridFS write and then reading it back
  */
 public class BasicIntegrationTest extends TestVerticle {
 
-    @Test
-    public void testGetMetaData() throws Exception {
-
-        JsonObject message = new JsonObject().putString("id", "51d347d4f671172940cc04b2");
-
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getMetaData", message, new Handler<Message<JsonObject>>() {
-            @Override
-            public void handle(Message<JsonObject> response) {
-                assertEquals("ok", response.body().getString("status"));
-                testComplete();
-            }
-        });
-
-    }
+    private EventBus eventBus;
+    private final String address = GridFSModule.DEFAULT_ADDRESS;
 
     @Test
-    public void testGetByteRange() throws Exception {
+    public void testWriteAndReadFile() throws Exception {
 
-        JsonObject message = new JsonObject()
-                .putString("id", "51d347d4f671172940cc04b2")
-                .putNumber("from", 1024)
-                .putNumber("to", 2047);
+        // Create a MongoDB ObjectId
+        final ObjectId id = new ObjectId();
 
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getByteRange", message, new Handler<Message<byte[]>>() {
+        // Handler for when write is complete and then triggers the read to start
+        Handler<Boolean> writeDoneHandler = new Handler<Boolean>() {
             @Override
-            public void handle(Message<byte[]> response) {
-                byte[] bytes = response.body();
-                assertEquals(1024, bytes.length);
-                testComplete();
-            }
-        });
-
-    }
-
-    @Test
-    public void testGetByteRange_All() throws Exception {
-
-        JsonObject message = new JsonObject()
-                .putString("id", "51d347d4f671172940cc04b2")
-                .putNumber("from", 0)
-                .putNumber("to", 161965);
-
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getByteRange", message, new Handler<Message<byte[]>>() {
-            @Override
-            public void handle(Message<byte[]> response) {
-                byte[] bytes = response.body();
-                assertEquals(161966, bytes.length);
-                testComplete();
-            }
-        });
-
-    }
-
-    @Test
-    public void testGetByteRange_More() throws Exception {
-
-        JsonObject message = new JsonObject()
-                .putString("id", "51d347d4f671172940cc04b2")
-                .putNumber("from", 0)
-                .putNumber("to", 1619650);
-
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getByteRange", message, new Handler<Message<byte[]>>() {
-            @Override
-            public void handle(Message<byte[]> response) {
-                byte[] bytes = response.body();
-                assertEquals(161966, bytes.length);
-                testComplete();
-            }
-        });
-
-    }
-
-    @Test
-    public void testGetByteRange_Invalid_Range() throws Exception {
-
-        JsonObject message = new JsonObject()
-                .putString("id", "51d347d4f671172940cc04b2")
-                .putNumber("from", 500)
-                .putNumber("to", 100);
-
-        vertx.eventBus().send(GridFSModule.DEFAULT_ADDRESS + "/getByteRange", message, new Handler<Message<byte[]>>() {
-            @Override
-            public void handle(Message<byte[]> response) {
-                if ((Message)response instanceof JsonObjectMessage) {
-                    JsonObjectMessage jsonObjectMessage = (JsonObjectMessage)(Message)response;
-                    assertEquals("error", jsonObjectMessage.body().getString("status"));
-                    testComplete();
+            public void handle(Boolean result) {
+                if (result) {
+                    startReadFile(id);
                 } else {
                     fail();
                 }
             }
-        });
+        };
+
+        // Start the write operation
+        startWriteFile(id, writeDoneHandler);
 
     }
 
-    /**
-     * Override this method to signify that start is complete sometime _after_ the start() method has returned
-     * This is useful if your verticle deploys other verticles or modules and you don't want this verticle to
-     * be considered started until the other modules and verticles have been started.
-     *
-     * @param startedResult When you are happy your verticle is started set the result
-     */
-    @Override
-    public void start(final Future<Void> startedResult) {
+    private void startWriteFile(ObjectId id, final Handler<Boolean> doneHandler) throws Exception {
 
-        container.deployVerticle(GridFSModule.class.getName(), new Handler<AsyncResult<String>>() {
+        String files_id = id.toString();
+
+        // Save image in chunks of 100k
+        int chunkSize = 102400;
+        byte[] bytes = new byte[chunkSize];
+
+        final SaveResults results = new SaveResults();
+        // At least one reply for saving file info
+        results.expectedReplies++;
+
+        // Reply handler for writing chunks and the file info
+        Handler<Message<JsonObject>> replyHandler = new Handler<Message<JsonObject>>() {
             @Override
-            public void handle(AsyncResult<String> result) {
-                if (result.succeeded()) {
-                    startedResult.setResult(null);
-                    BasicIntegrationTest.this.start();
-                } else {
-                    startedResult.setFailure(result.cause());
+            public void handle(Message<JsonObject> reply) {
+                String status = reply.body().getString("status");
+                assertEquals("ok", status);
+
+                if ("ok".equals(status)) {
+                    results.count++;
+                    // Check if we're done
+                    if (results.expectedReplies == results.count) {
+                        doneHandler.handle(true);
+                    }
+                }
+            }
+        };
+
+        InputStream inputStream = this.getClass().getResourceAsStream("/EF_Labs_ENG_logo.JPG");
+        int len = inputStream.read(bytes);
+
+        int n = 0;
+        int totalLength = len;
+
+        while (len > 0) {
+            JsonObject jsonObject = new JsonObject()
+                    .putString("files_id", files_id)
+                    .putNumber("n", n++);
+
+            byte[] jsonBytes = jsonObject.encode().getBytes("UTF-8");
+            Buffer buffer = new Buffer(chunkSize + 4 + jsonBytes.length);
+
+            buffer.appendInt(jsonBytes.length);
+            buffer.appendBytes(jsonBytes);
+            buffer.appendBytes(Arrays.copyOfRange(bytes, 0, len));
+
+            results.expectedReplies++;
+
+            // Send chunk to event bus
+            eventBus.send(address + "/saveChunk", buffer, replyHandler);
+
+            len = inputStream.read(bytes);
+            if (len > 0) {
+                totalLength += len;
+            }
+        }
+
+        JsonObject fileInfo = new JsonObject()
+                .putString("action", "saveFile")
+                .putString("id", files_id)
+                .putNumber("length", totalLength)
+                .putNumber("chunkSize", chunkSize)
+                .putNumber("uploadDate", System.currentTimeMillis())
+                .putString("filename", "image.jpg")
+                .putString("contentType", "image/jpeg");
+
+        vertx.eventBus().send(address, fileInfo, replyHandler);
+
+    }
+
+    private void startReadFile(final ObjectId id) {
+
+        JsonObject message = new JsonObject().putString("id", id.toString()).putString("action", "getFile");
+
+        eventBus.send(address, message, new Handler<Message<JsonObject>>() {
+            @Override
+            public void handle(Message<JsonObject> reply) {
+                String status = reply.body().getString("status");
+                assertEquals("ok", status);
+                if ("ok".equals(status)) {
+
+                    final int chunkSize = reply.body().getInteger("chunkSize");
+                    final int length = reply.body().getInteger("length");
+
+                    JsonObject chunkMessage = new JsonObject()
+                            .putString("action", "getChunk")
+                            .putString("files_id", id.toString())
+                            .putNumber("n", 0)
+                            .putBoolean("reply", true);
+
+                    eventBus.send(address, chunkMessage, new Handler<Message<byte[]>>() {
+                        @Override
+                        public void handle(Message<byte[]> reply) {
+                            handleChunkReply(reply, length, chunkSize, new Buffer());
+                        }
+                    });
                 }
             }
         });
 
     }
+
+    private void handleChunkReply(final Message<byte[]> message, final int length, final int chunkSize, final Buffer buffer) {
+
+        byte[] bytes = message.body();
+        buffer.appendBytes(bytes);
+
+        if (bytes.length < chunkSize) {
+            assertEquals(length, buffer.length());
+            testComplete();
+        } else {
+            message.reply(new JsonObject(), new Handler<Message<byte[]>>() {
+                @Override
+                public void handle(Message<byte[]> reply) {
+                    handleChunkReply(reply, length, chunkSize, buffer);
+                }
+            });
+        }
+
+    }
+
+    private static class SaveResults {
+        public int expectedReplies;
+        public int count;
+    }
+
+    @Override
+    public void start(Future<Void> startedResult) {
+        eventBus = vertx.eventBus();
+        IntegrationTestHelper.onVerticleStart(this, startedResult);
+    }
+
 }
