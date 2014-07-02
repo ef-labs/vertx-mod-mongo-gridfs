@@ -58,9 +58,9 @@ public class IntegrationTestHelper {
     public static final BasicDBObject DEFAULT_METADATA = new BasicDBObject("additional", "info");
     public static final Integer DEFAULT_LENGTH = 161966;
 
-    public static JsonObject onVerticleStart(final Verticle verticle, final Future<Void> startedResult) {
+    public static JsonObject onVerticleStart(final Verticle verticle, final Future<Void> startedResult, String configFile) {
 
-        JsonObject config = loadConfig();
+        JsonObject config = loadConfig(configFile);
         verticle.getContainer().deployVerticle(GridFSModule.class.getName(), config, new Handler<AsyncResult<String>>() {
             @Override
             public void handle(AsyncResult<String> result) {
@@ -112,9 +112,9 @@ public class IntegrationTestHelper {
         return inputFile.getId().toString();
     }
 
-    private static JsonObject loadConfig() {
+    private static JsonObject loadConfig(String filename) {
 
-        try (InputStream stream = IntegrationTestHelper.class.getResourceAsStream("/config.json")) {
+        try (InputStream stream = IntegrationTestHelper.class.getResourceAsStream(filename)) {
             StringBuilder sb = new StringBuilder();
             BufferedReader reader = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
 

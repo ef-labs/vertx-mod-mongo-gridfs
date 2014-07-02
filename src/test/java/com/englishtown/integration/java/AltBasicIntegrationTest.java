@@ -1,6 +1,6 @@
 /*
  * The MIT License (MIT)
- * Copyright © 2013 Englishtown <opensource@englishtown.com>
+ * Copyright © 2014 Englishtown <opensource@englishtown.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the “Software”), to deal
@@ -26,10 +26,9 @@ package com.englishtown.integration.java;
 import org.junit.Test;
 
 /**
- * Integration test showing a GridFS write and then reading it back
+ * Integration test using the alternative config
  */
-public class BasicIntegrationTest extends BasicIntegrationBase {
-
+public class AltBasicIntegrationTest  extends BasicIntegrationBase {
     @Test
     public void testWriteAndReadFile() throws Exception {
         doTestWriteAndReadFile();
@@ -37,6 +36,6 @@ public class BasicIntegrationTest extends BasicIntegrationBase {
 
     @Override
     protected String configFile() {
-        return "/config.json";
+        return "/alt_config.json";
     }
 }

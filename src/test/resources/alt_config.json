@@ -1,0 +1,4 @@
+{
+    "db_name": "it",
+    "seeds": [{"host":"localhost", "port":27017}]
+}
