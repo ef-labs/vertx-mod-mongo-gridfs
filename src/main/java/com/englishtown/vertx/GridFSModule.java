@@ -32,6 +32,7 @@ import org.vertx.java.core.Handler;
 import org.vertx.java.core.buffer.Buffer;
 import org.vertx.java.core.eventbus.EventBus;
 import org.vertx.java.core.eventbus.Message;
+import org.vertx.java.core.json.JsonArray;
 import org.vertx.java.core.json.JsonObject;
 import org.vertx.java.core.logging.Logger;
 import org.vertx.java.platform.Verticle;
@@ -39,8 +40,10 @@ import org.vertx.java.platform.Verticle;
 import java.io.UnsupportedEncodingException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
 
 /**
  * An EventBus module providing MongoDB GridFS functionality
@@ -77,11 +80,18 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
         password = config.getString("password", null);
         int poolSize = config.getInteger("pool_size", 10);
 
+        JsonArray seedsProperty = config.getArray("seeds");
+
         try {
             MongoClientOptions.Builder builder = new MongoClientOptions.Builder();
             builder.connectionsPerHost(poolSize);
-            ServerAddress address = new ServerAddress(host, port);
-            mongo = new MongoClient(address, builder.build());
+            if (seedsProperty == null) {
+                ServerAddress address = new ServerAddress(host, port);
+                mongo = new MongoClient(address, builder.build());
+            } else {
+                List<ServerAddress> seeds = makeSeeds(seedsProperty);
+                mongo = new MongoClient(seeds, builder.build());
+            }
             db = mongo.getDB(dbName);
             if (username != null && password != null) {
                 db.authenticate(username, password.toCharArray());
@@ -101,6 +111,17 @@ public class GridFSModule extends Verticle implements Handler<Message<JsonObject
             }
         });
 
+    }
+
+    private List<ServerAddress> makeSeeds(JsonArray seedsProperty) throws UnknownHostException {
+        List<ServerAddress> seeds = new ArrayList<>();
+        for (Object elem : seedsProperty) {
+            JsonObject address = (JsonObject) elem;
+            String host = address.getString("host");
+            int port = address.getInteger("port");
+            seeds.add(new ServerAddress(host, port));
+        }
+        return seeds;
     }
 
     @Override

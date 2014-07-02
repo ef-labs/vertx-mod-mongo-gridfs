@@ -21,6 +21,15 @@ The MongoDB GridFS module takes the following configuration:
         "db_name": <db_name>,
         "pool_size": <pool_size>
     }
+    
+Or for replica sets:    
+
+    {
+        "address": <address>,
+        "seeds": [{"host":<address1>, "port":<port1>},{"host":<address2>, "port":<port2>}]
+        "db_name": <db_name>,
+        "pool_size": <pool_size>
+    }
 
 For example:
 
@@ -32,6 +41,15 @@ For example:
         "db_name": "my_db"
     }
 
+Or for replica sets:
+ 
+    {
+        "address": "test.my_persistor",
+        "seeds": [{"host":"192.168.1.100", "port":27000},{"host":"192.168.1.101", "port":27000}]
+        "pool_size": 20,
+        "db_name": "my_db"
+    }
+    
 Let's take a look at each field in turn:
 
 * `address` The main address for the module. Every module has a main address. Defaults to `et.mongo.gridfs`.
@@ -39,6 +57,8 @@ Let's take a look at each field in turn:
 * `port` Port at which the MongoDB instance is listening. Defaults to `27017`.
 * `db_name` Name of the database in the MongoDB instance to use. Defaults to `default_db`.
 * `pool_size` The number of socket connections the module instance should maintain to the MongoDB server. Default is 10.
+* `seeds` Use instead of host and port when connecting to a replica set.
+
 
 
 ## Operations
