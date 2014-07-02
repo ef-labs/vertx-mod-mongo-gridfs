@@ -171,7 +171,7 @@ public class SaveChunkIntegrationTest extends TestVerticle {
     @Override
     public void start(Future<Void> startedResult) {
         eventBus = vertx.eventBus();
-        IntegrationTestHelper.onVerticleStart(this, startedResult);
+        IntegrationTestHelper.onVerticleStart(this, startedResult, "/config.json");
     }
 
 }
